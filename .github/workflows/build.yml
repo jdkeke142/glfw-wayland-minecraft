@@ -1,0 +1,59 @@
+name: Build libglfw.so
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config libwayland-dev \
+            libxkbcommon-dev wayland-protocols extra-cmake-modules libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libgl-dev libwayland-bin
+
+      - name: Clone LWJGL-CI/glfw
+        run: git clone --depth 1 https://github.com/LWJGL-CI/glfw glfw
+
+      - name: Apply patches
+        run: |
+          cd glfw
+          git config user.email "ci@build"
+          git config user.name "CI"
+          git am ../0*.patch
+
+      - name: Build
+        run: |
+          cd glfw
+          cmake -B build -G Ninja \
+            -DGLFW_BUILD_WAYLAND=ON \
+            -DGLFW_BUILD_X11=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGLFW_BUILD_EXAMPLES=OFF \
+            -DGLFW_BUILD_TESTS=OFF \
+            -DGLFW_BUILD_DOCS=OFF
+          ninja -C build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libglfw-x86_64
+          path: glfw/build/src/libglfw.so.3.5
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp glfw/build/src/libglfw.so.3.5 libglfw.so
+          gh release create ${{ github.ref_name }} libglfw.so \
+            --title "${{ github.ref_name }} - libglfw.so (x86_64)" \
+            --generate-notes

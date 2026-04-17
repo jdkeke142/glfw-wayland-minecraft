@@ -1,0 +1,30 @@
+From 3467a54c31d29388b914c7222ee819a45ec8db1a Mon Sep 17 00:00:00 2001
+From: keke142 <jdkeke142@gmail.com>
+Date: Fri, 17 Apr 2026 16:01:42 +0200
+Subject: [PATCH 1/5] Key modifiers fix
+
+Without this, pressing Ctrl+A in a text field (e.g. Minecraft chat)
+inserts a literal 'a' character in addition to triggering the select-all
+shortcut. Only call _glfwInputChar when no modifier keys are held.
+---
+ src/wl_window.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 107d163..5721989 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -1382,7 +1382,9 @@ static void inputText(_GLFWwindow* window, uint32_t scancode)
+         {
+             const int mods = _glfw.wl.xkb.modifiers;
+             const int plain = !(mods & (GLFW_MOD_CONTROL | GLFW_MOD_ALT));
+-            _glfwInputChar(window, codepoint, mods, plain);
++
++            if (plain)
++                _glfwInputChar(window, codepoint, mods, plain);
+         }
+     }
+ }
+-- 
+2.47.3
+

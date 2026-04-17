@@ -1,0 +1,34 @@
+From 8806751d51e5e3a424db586fe2aa1f482bc22433 Mon Sep 17 00:00:00 2001
+From: keke142 <jdkeke142@gmail.com>
+Date: Fri, 17 Apr 2026 16:03:33 +0200
+Subject: [PATCH 3/5] Fix window size callback not firing on unset fullscreen
+
+When exiting fullscreen via _glfwSetWindowSizeWayland, the window
+surface is resized but the size callback is never fired. The client
+(e.g. Minecraft) keeps the old fullscreen dimensions cached, causing
+input coordinate mismatches until a manual resize.
+
+Add _glfwInputWindowSize after the resize so clients are always
+notified of the new dimensions.
+
+Based on BoyOrigin/glfw-wayland patch 0004.
+---
+ src/wl_window.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 127d46c..80ff9d8 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -2989,6 +2989,8 @@ void _glfwSetWindowSizeWayland(_GLFWwindow* window, int width, int height)
+             libdecor_state_free(frameState);
+         }
+ 
++        _glfwInputWindowSize(window, width, height);
++
+         if (window->wl.visible)
+             _glfwInputWindowDamage(window);
+     }
+-- 
+2.47.3
+
