@@ -1,0 +1,38 @@
+From 07822446a789752328d7826f8921be9969b0ef1d Mon Sep 17 00:00:00 2001
+From: keke142 <jdkeke142@gmail.com>
+Date: Fri, 17 Apr 2026 16:03:52 +0200
+Subject: [PATCH 4/7] Fix framebuffer size rounding with fractional scaling
+
+The framebuffer dimensions are computed as (size * scale) / 120, which
+truncates toward zero. With fractional scaling (e.g. 1.75x), this can
+produce a buffer 1px smaller than the physical pixel area allocated by
+the compositor, causing a full-surface bilinear upscale and visible
+blur on every window that doesn't happen to have a "clean" logical size.
+
+Use round-half-up instead: (size * scale + 60) / 120. This matches
+the rounding behavior described in the Wayland toplevel spec and
+ensures the buffer size is never smaller than the physical area.
+
+See https://github.com/glfw/glfw/issues/2713
+---
+ src/wl_window.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 80ff9d8..927aa82 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -481,8 +481,8 @@ static void resizeFramebuffer(_GLFWwindow* window)
+ {
+     if (window->wl.fractionalScale)
+     {
+-        window->wl.fbWidth = (window->wl.width * window->wl.scalingNumerator) / 120;
+-        window->wl.fbHeight = (window->wl.height * window->wl.scalingNumerator) / 120;
++        window->wl.fbWidth = (window->wl.width * window->wl.scalingNumerator + 60) / 120;
++        window->wl.fbHeight = (window->wl.height * window->wl.scalingNumerator + 60) / 120;
+     }
+     else
+     {
+-- 
+2.47.3
+

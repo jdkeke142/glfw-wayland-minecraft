@@ -1,0 +1,44 @@
+From 079cd112eb3e1559a0e9fc6b72d2dbb59339851a Mon Sep 17 00:00:00 2001
+From: build <build@ci>
+Date: Tue, 21 Apr 2026 00:49:48 +0200
+Subject: [PATCH 7/7] Add GLFW_USE_LEGACY_CURSOR_WARP env var to opt out of
+ pointer_warp_v1
+
+pointer_warp_v1 has known issues on some compositors, notably Hyprland,
+where warps silently stop working after several lock/unlock cycles. The
+legacy zwp_locked_pointer_v1 fallback is empirically more reliable on
+these setups. Let users opt out of pointer_warp_v1 via the
+GLFW_USE_LEGACY_CURSOR_WARP=1 env var.
+---
+ src/wl_window.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 580ddf8..08ab753 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -3450,8 +3450,20 @@ void _glfwGetCursorPosWayland(_GLFWwindow* window, double* xpos, double* ypos)
+ 
+ void _glfwSetCursorPosWayland(_GLFWwindow* window, double x, double y)
+ {
++    // Opt-out: skip pointer_warp_v1 and go straight to the legacy fallback.
++    // pointer_warp_v1 has known issues on some compositors (e.g. Hyprland with
++    // certain serial tracking patterns) where warps fail after several
++    // lock/unlock cycles. Set GLFW_USE_LEGACY_CURSOR_WARP=1 to force the
++    // zwp_locked_pointer_v1 hint path instead.
++    static int legacyWarp = -1;
++    if (legacyWarp == -1)
++    {
++        const char* env = getenv("GLFW_USE_LEGACY_CURSOR_WARP");
++        legacyWarp = (env && strcmp(env, "1") == 0) ? 1 : 0;
++    }
++
+     // Preferred: pointer_warp_v1 (KDE 6.5+, GNOME 49+)
+-    if (_glfw.wl.pointerWarp)
++    if (!legacyWarp && _glfw.wl.pointerWarp)
+     {
+         wp_pointer_warp_v1_warp_pointer(_glfw.wl.pointerWarp, window->wl.surface, _glfw.wl.pointer, wl_fixed_from_double(x), wl_fixed_from_double(y), _glfw.wl.pointerEnterSerial);
+         window->wl.cursorPosX = x;
+-- 
+2.47.3
+

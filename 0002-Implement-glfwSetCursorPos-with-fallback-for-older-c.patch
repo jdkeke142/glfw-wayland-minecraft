@@ -1,0 +1,95 @@
+From 20033e88f10973568af5a7cd594712b751d0e60f Mon Sep 17 00:00:00 2001
+From: keke142 <jdkeke142@gmail.com>
+Date: Fri, 17 Apr 2026 16:03:11 +0200
+Subject: [PATCH 2/7] Implement glfwSetCursorPos with fallback for older
+ compositors
+
+The LWJGL-CI fork already implements glfwSetCursorPos via the
+pointer_warp_v1 protocol, but this requires KDE 6.5+ or GNOME 49+.
+
+Add a fallback using zwp_locked_pointer_v1_set_cursor_position_hint
+for older compositors. When the pointer is locked (e.g. during
+Minecraft gameplay), this lets the cursor be repositioned correctly.
+When not yet locked, the request is deferred and applied once the
+lock is acquired.
+
+Based on BoyOrigin/glfw-wayland patch 0003.
+---
+ src/wl_platform.h |  3 +++
+ src/wl_window.c   | 35 +++++++++++++++++++++++++++++++----
+ 2 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/src/wl_platform.h b/src/wl_platform.h
+index 084519d..e2b8d0f 100644
+--- a/src/wl_platform.h
++++ b/src/wl_platform.h
+@@ -424,6 +424,9 @@ typedef struct _GLFWwindowWayland
+     struct zwp_locked_pointer_v1*   lockedPointer;
+     struct zwp_confined_pointer_v1* confinedPointer;
+ 
++    double                          askedCursorPosX, askedCursorPosY;
++    GLFWbool                        didAskForSetCursorPos;
++
+     struct zwp_idle_inhibitor_v1*   idleInhibitor;
+     struct xdg_activation_token_v1* activationToken;
+ 
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 5721989..127d46c 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -3385,14 +3385,30 @@ void _glfwGetCursorPosWayland(_GLFWwindow* window, double* xpos, double* ypos)
+ 
+ void _glfwSetCursorPosWayland(_GLFWwindow* window, double x, double y)
+ {
+-    if (!_glfw.wl.pointerWarp)
++    // Preferred: pointer_warp_v1 (KDE 6.5+, GNOME 49+)
++    if (_glfw.wl.pointerWarp)
+     {
+-        _glfwInputError(GLFW_FEATURE_UNAVAILABLE,
+-                    "Wayland: The compositor does not support setting the cursor position");
++        wp_pointer_warp_v1_warp_pointer(_glfw.wl.pointerWarp, window->wl.surface, _glfw.wl.pointer, wl_fixed_from_double(x), wl_fixed_from_double(y), _glfw.wl.pointerEnterSerial);
++        window->wl.cursorPosX = x;
++        window->wl.cursorPosY = y;
++        return;
++    }
++
++    // Fallback: zwp_locked_pointer_v1 hint (works on older compositors when pointer is locked)
++    if (window->wl.lockedPointer)
++    {
++        zwp_locked_pointer_v1_set_cursor_position_hint(window->wl.lockedPointer,
++                                                       wl_fixed_from_double(x),
++                                                       wl_fixed_from_double(y));
++        window->wl.cursorPosX = x;
++        window->wl.cursorPosY = y;
+         return;
+     }
+ 
+-    wp_pointer_warp_v1_warp_pointer(_glfw.wl.pointerWarp, window->wl.surface, _glfw.wl.pointer, wl_fixed_from_double(x), wl_fixed_from_double(y), _glfw.wl.pointerEnterSerial);
++    // Deferred: stash request, apply when pointer becomes locked
++    window->wl.didAskForSetCursorPos = GLFW_TRUE;
++    window->wl.askedCursorPosX = x;
++    window->wl.askedCursorPosY = y;
+ }
+ 
+ void _glfwSetCursorModeWayland(_GLFWwindow* window, int mode)
+@@ -3626,6 +3642,17 @@ static const struct zwp_relative_pointer_v1_listener relativePointerListener =
+ static void lockedPointerHandleLocked(void* userData,
+                                       struct zwp_locked_pointer_v1* lockedPointer)
+ {
++    _GLFWwindow* window = userData;
++
++    if (window->wl.didAskForSetCursorPos)
++    {
++        window->wl.didAskForSetCursorPos = GLFW_FALSE;
++        zwp_locked_pointer_v1_set_cursor_position_hint(window->wl.lockedPointer,
++                                                       wl_fixed_from_double(window->wl.askedCursorPosX),
++                                                       wl_fixed_from_double(window->wl.askedCursorPosY));
++        window->wl.cursorPosX = window->wl.askedCursorPosX;
++        window->wl.cursorPosY = window->wl.askedCursorPosY;
++    }
+ }
+ 
+ static void lockedPointerHandleUnlocked(void* userData,
+-- 
+2.47.3
+
